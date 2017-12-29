@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+    呵呵 这是socket.io测试页面
+    <script type="text/javascript">
+        //建立socket链接
+        var socket = io.connect("http://localhost:3000/index");
+        var token;
+
+        //初始化页面  登陆访问
+        var login = function(userName, password){
+            socket.emit('login', {'userName':userName,'password':password});
+        }
+        var msg = function(msg){
+            socket.emit('msg', {'msg': msg, 'token':token});
+        }
+
+
+
+
+        socket.on('loginResult', function(data){
+            console.log('loginResult:' + data.msg + " results:" + data.results);
+            token = data.results;
+        });
+
+        socket.on('error', function(error){
+            console.log('error:' + error);
+        });
+
+        socket.on('msg', function(data){
+            console.log('msg' + data.msg);
+        });
+    </script>
+
+</body>
+</html>

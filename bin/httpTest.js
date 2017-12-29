@@ -1,100 +1,102 @@
 var http = require('http');
 var express = require('express');
 var app = express();
-var mysql = require('mysql');
+var socket = require('socket.io');
+var login = require('./dao/Login');
 
 
-//http连接
-// http.createServer(function (request, response) {
-//
-//     // 发送 HTTP 头部
-//     // HTTP 状态值: 200 : OK
-//     // 内容类型: text/plain
-//     response.writeHead(200, {'Content-Type': 'application/json'});
-//
-//     // 发送响应数据 "Hello World"
-//     response.end('Hello World\n' + query.toString());
-// }).listen(3000);
-//
-// // 终端打印如下信息
-// console.log('Server running at http://127.0.0.1:3000/');
-
-
-
-var connection = mysql.createConnection({
-    host     : '39.106.67.112',
-    user     : 'root',
-    password : '123456',
-    database : 'shelter'
+//应用监听端口
+var port = 3000;
+var server = http.Server(app);
+server.listen(port);    //必须是 http设置端口   app.listen(port) 并不会将端口给server
+var io =  socket(server,{
+    pingTimeout: 6000,
+    pingInterval: 10000
 });
-connection.connect();
 
 
-//express web方式自动路由方式
-console.log(app);
-app.get('/queryAllUser', function (req, res) {
+//静态资源
+app.use(express.static('public'));
 
-    res.writeHead(200, {'Content-Type': 'application/json'});
-    try{
-        connection.query('select * from user', function (error, results, fields) {
-            if (error) throw error;
 
-            var map = {};
-            map.result = results;
-            map.status = 200;
-            if(results != null && results.length > 0){
-                map.result = results;
-                map.status = 200;
+//展示socketio demo页面
+app.get('/socketIndex/:fileName', function(req, res){
+    var fileName = req.params.fileName;
+
+    res.sendFile(__dirname + '/view/' + fileName, function (err) {
+        if (err) {
+            console.log(err);
+            res.status(err.status).send("产生错误:" + err).end();
+        }
+        else {
+            console.log('Sent:', fileName);
+        }
+    });
+});
+
+
+var index = io.of("/index");
+
+index.use(function(socket, next){
+    console.log("nameSpace.use");
+    next();
+});
+
+index.on("connection", function (socket) {
+    console.log("socket.io监听connection")
+
+    //登陆拦截器
+    socket.use(function(packet, next){
+        console.log("socket.use:packet" + packet[0]);
+        if(packet[0] == 'login' || packet[1].token != null){
+            return next();
+        }
+        next(new Error("请登陆"));
+    });
+
+    //error事件处理器
+    socket.on('error', function(error){
+        console.log("socket.error");
+        socket.emit('error',{'status': 001, 'msg':'error:' + error});
+    });
+
+    //第一次建立链接后登陆操作
+    socket.on('login', function(data){
+        var userName = data.userName;
+        var password = data.password;
+
+        //方法一  事件方式同步
+        // login.login(userName, password);
+        //
+        // console.log(socket.id)
+        // console.log(socket.rooms);
+
+        //这种方法  socket会广播发送
+        // login.emitter.on('loginUser', function (data) {
+        //     if(data.flag){
+        //         console.log('local socket.id ' + socket.id)
+        //         socket.emit('loginResult',{'status':200,'msg':data.msg}); //.to(/* another socket id */) 私聊
+        //     }else{
+        //         console.log('local socket.id ' + socket.id)
+        //         socket.emit('loginResult',{'status':001,'msg':data.msg});
+        //     }
+        // })
+
+
+        //方法二  回掉函数方式同步
+        login.loginBack(userName, password, function(flag, msg, results){
+            if(flag){
+                console.log('local socket.id ' + socket.id)
+                socket.emit('loginResult',{'status':200,'msg':msg, 'results': results[0].id});
             }else{
-                map.status = 002;
-                map.msg = "登陆失败，用户名或密码错误";
+                console.log('local socket.id ' + socket.id)
+                socket.emit('loginResult',{'status':001,'msg':msg});
             }
-            res.write(JSON.stringify(map));
-            res.end();
-        });
-    }catch (e){
-        res.end(JSON.stringify({"status": 001, "error": e.toString()}));
-    }
-});
+        })
+    });
 
 
-//登陆
-app.get('/login', function (req, res) {
-
-    res.writeHead(200, {'Content-Type': 'application/json'});
-    try{
-        var userName = req.param("userName");
-        var password = req.param("password");
-
-        var sql = "select * from user where user_name='" + userName + "' and password='" + password + "'";
-        connection.query(sql, function (error, results, fields) {
-            if (error) throw error;
-            console.log('The solution is: ', results);
-
-            var map = {};
-            map.result = results;
-            map.status = 200;
-            if(results != null && results.length > 0){
-                map.result = results;
-                map.status = 200;
-            }else{
-                map.status = 002;
-                map.msg = "登陆失败，用户名或密码错误";
-            }
-            res.write(JSON.stringify(map));
-            res.end();
-        });
-    }catch (e){
-        res.end(JSON.stringify({"status": 001, "error": e.toString()}));
-    }
-});
-
-
-
-var server = app.listen(3000, function () {
-
-    var host = server.address().address
-    var port = server.address().port
-
-    console.log("应用实例，访问地址为 http://%s:%s", host, port)
+    socket.on('msg', function(data){
+        socket.broadcast.emit('msg', {'status': 200, 'msg': socket.id + '发送了消息:' + data.msg});
+    });
 });
